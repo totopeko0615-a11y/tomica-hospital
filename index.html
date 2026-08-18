@@ -84,3 +84,205 @@
   </footer>
 </body>
 </html>
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>外来予約 | トミカ医科大学病院</title>
+  <meta http-equiv="Cache-Control" content="no-store">
+  <style>
+    body{font-family:system-ui,"Hiragino Sans","Noto Sans JP",sans-serif;line-height:1.6;margin:0;padding:0 16px;color:#222;background:#fff}
+    header,footer{padding:12px 0}
+    h1{font-size:1.25rem;margin:16px 0}
+    form{display:grid;grid-template-columns:1fr;gap:12px;max-width:780px}
+    fieldset{border:1px solid #e5e5e5;border-radius:10px;padding:12px}
+    legend{font-weight:600}
+    label{display:block;margin:6px 0}
+    input,select,textarea{width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;font-size:1rem}
+    .row{display:flex;gap:12px;flex-wrap:wrap}
+    .row>*{flex:1 1 220px}
+    #slots{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+    .slot{padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer}
+    .slot[aria-disabled="true"]{opacity:.5;cursor:not-allowed}
+    .slot[aria-pressed="true"]{outline:2px solid #2b6cb0}
+    .muted{color:#666}
+    .ok{color:#065f46}
+    .err{color:#b91c1c}
+    .mini{font-size:.92rem}
+    footer small{color:#666}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>外来予約</h1>
+    <p class="muted">初診は午前枠のみ／受診日前日17:00が締切（日本時間）。</p>
+  </header>
+
+  <main>
+    <form id="f" novalidate>
+      <fieldset>
+        <legend>受診内容</legend>
+        <div class="row">
+          <label>診療科
+            <select name="dept" required></select>
+          </label>
+          <label>担当医
+            <select name="doctor" required></select>
+          </label>
+        </div>
+        <div class="row">
+          <label>受診日
+            <input type="date" name="date" required>
+          </label>
+          <label>受診区分
+            <select name="visitType">
+              <option value="再診">再診</option>
+              <option value="初診">初診（午前のみ）</option>
+            </select>
+          </label>
+        </div>
+        <div>
+          <strong>予約枠</strong>
+          <div id="slots" role="list" aria-label="予約可能な時間帯"><p class="muted">診療科・医師・受診日を選ぶと表示されます。</p></div>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>患者さま情報</legend>
+        <div class="row">
+          <label>氏名
+            <input type="text" name="name" required autocomplete="name" placeholder="山田 太郎">
+          </label>
+          <label>フリガナ
+            <input type="text" name="kana" required placeholder="ヤマダ タロウ">
+          </label>
+        </div>
+        <div class="row">
+          <label>生年月日
+            <input type="date" name="dob" required>
+          </label>
+          <label>メールアドレス
+            <input type="email" name="email" required autocomplete="email" placeholder="you@example.com">
+          </label>
+        </div>
+        <label>備考
+          <textarea name="note" rows="3" placeholder="症状や配慮事項など（任意）"></textarea>
+        </label>
+      </fieldset>
+
+      <div class="row" style="align-items:center">
+        <button id="submitBooking" type="submit" disabled>予約を送信</button>
+        <span id="msg" class="muted"></span>
+      </div>
+    </form>
+  </main>
+
+  <section>
+    <h2>アクセス・連絡先</h2>
+    <p class="muted mini">
+      住所：トミカ市 未来町1-5／電話：<a href="tel:022-110-446">022-110-446</a><br>
+      アクセス：JRトミカ駅から徒歩30分／富良野バスターミナルから「トミカ医科大学病院線」で約30分
+    </p>
+  </section>
+
+  <footer>
+    <small>最終更新: 自動（Googleスプレッドシート）｜© <span id="year"></span> トミカ医科大学病院</small>
+  </footer>
+
+  <script>
+    // あなたの予約API（いただいたURL）
+    const BOOKING_API = 'https://script.google.com/macros/s/AKfycbxVuhbUZwy_mWPXQYQyqX65IbyqWDk7ntmApkED9tXIz6ngl960kx4gDBNTPrkOEPGf/exec';
+
+    // 診療科と担当医（任せてOKの初期セット）
+    const DOCTORS = {
+      '内科': ['山田 太郎','佐藤 花子'],
+      '外科': ['周央 サンゴ','田中 一郎'],
+      '小児科': ['鈴木 花'],
+      '耳鼻咽喉科': ['高橋 光']
+    };
+
+    document.getElementById('year').textContent = new Date().getFullYear();
+    const $ = (s,r=document)=>r.querySelector(s);
+    const f = $('#f'), slotsEl = $('#slots'), btn = $('#submitBooking'), msg = $('#msg');
+    const deptSel = $('select[name="dept"]'), docSel = $('select[name="doctor"]'), dateInp = $('input[name="date"]'), vtSel = $('select[name="visitType"]');
+
+    // 今日以降のみ
+    const today = new Date(); const yyyy=today.getFullYear(); const mm=String(today.getMonth()+1).padStart(2,'0'); const dd=String(today.getDate()).padStart(2,'0');
+    dateInp.min = `${yyyy}-${mm}-${dd}`;
+
+    // プルダウン
+    deptSel.innerHTML = '<option value="">選択してください</option>' + Object.keys(DOCTORS).map(d=>`<option>${d}</option>`).join('');
+    deptSel.addEventListener('change', ()=>{
+      const list = DOCTORS[deptSel.value]||[];
+      docSel.innerHTML = '<option value="">選択してください</option>' + list.map(n=>`<option>${n}</option>`).join('');
+      renderSlots();
+    });
+    docSel.addEventListener('change', renderSlots);
+    dateInp.addEventListener('change', renderSlots);
+    vtSel.addEventListener('change', renderSlots);
+
+    let selectedTime = '';
+    function slotBtn(t, disabled){
+      const b = document.createElement('button');
+      b.type='button'; b.textContent=t; b.className='slot';
+      b.setAttribute('role','listitem'); b.setAttribute('aria-disabled', disabled?'true':'false');
+      b.addEventListener('click', ()=>{
+        if (disabled) return;
+        selectedTime = t;
+        slotsEl.querySelectorAll('.slot').forEach(x=>x.setAttribute('aria-pressed','false'));
+        b.setAttribute('aria-pressed','true');
+        btn.disabled = false;
+      });
+      return b;
+    }
+
+    async function renderSlots(){
+      btn.disabled = true; selectedTime=''; msg.className='muted'; msg.textContent='';
+      const dept = deptSel.value, doctor = docSel.value, date = dateInp.value, visitType = vtSel.value;
+      if (!dept || !doctor || !date){
+        slotsEl.innerHTML = '<p class="muted">診療科・医師・受診日を選択してください。</p>'; return;
+      }
+      slotsEl.innerHTML = '<p class="muted">読み込み中…</p>';
+      try{
+        const u = new URL(BOOKING_API);
+        u.searchParams.set('fn','slots');
+        u.searchParams.set('dept',dept); u.searchParams.set('doctor',doctor); u.searchParams.set('date',date); u.searchParams.set('visitType',visitType);
+        const data = await fetch(u.toString(), { cache:'no-store' }).then(r=>r.json());
+        const slots = Array.isArray(data.slots)? data.slots : [];
+        if (!slots.length){ slotsEl.innerHTML = '<p class="muted">該当日の予約枠はありません（締切済み/満席の可能性）。別日をご検討ください。</p>'; return; }
+        slotsEl.innerHTML = ''; slots.forEach(t=> slotsEl.appendChild(slotBtn(t, false)));
+      }catch(e){
+        slotsEl.innerHTML = '<p class="muted">枠の取得に失敗しました。時間をおいてお試しください。</p>';
+      }
+    }
+
+    $('#f').addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      const dept = deptSel.value, doctor = docSel.value, date = dateInp.value, visitType = vtSel.value, time = selectedTime;
+      if (!dept || !doctor || !date || !time){ msg.className='err'; msg.textContent='未入力の項目があります。'; return; }
+      if (!f.checkValidity()){ msg.className='err'; msg.textContent='入力内容をご確認ください。'; return; }
+
+      const payload = { dept, doctor, date, time, visitType,
+        patient: { name: f.name.value, kana: f.kana.value, dob: f.dob.value, email: f.email.value, note: f.note.value } };
+      btn.disabled = true; msg.className='muted'; msg.textContent='送信中…';
+      try{
+        const data = await fetch(BOOKING_API, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) }).then(r=>r.json());
+        if (data.ok){
+          msg.className='ok'; msg.textContent='予約を受け付けました。確認メールをご確認ください。';
+          f.reset(); slotsEl.innerHTML = '<p class="muted">診療科・医師・受診日を選択してください。</p>'; selectedTime=''; btn.disabled=true;
+        }else{
+          const err = String(data.error||'');
+          const m = err.includes('already_taken') ? '選択した時間帯は満席になりました。別の枠をお選びください。'
+                : err.includes('cutoff_passed') ? '締切時刻（前日17:00）を過ぎています。別日をご検討ください。'
+                : err.includes('invalid_time_for_visit') ? '初診は午前枠のみ選択できます。'
+                : '送信に失敗しました。時間をおいて再度お試しください。';
+          msg.className='err'; msg.textContent = m; btn.disabled=false;
+        }
+      }catch(err){
+        msg.className='err'; msg.textContent='通信エラーが発生しました。ネットワークをご確認ください。'; btn.disabled=false;
+      }
+    });
+  </script>
+</body>
+</html>
